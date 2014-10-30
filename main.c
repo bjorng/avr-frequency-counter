@@ -542,17 +542,33 @@ static void show_line(char* s)
     }
 }
 
+/*
+ * Frequency ranges.
+ */
+static struct {
+    unsigned long min;		/* Lowest value for this range */
+    unsigned long max;		/* Highest value for this range */
+    signed char point;		/* Position of decimal point */
+    signed char lsd;		/* Position of least significant digit */
+    unsigned int divisor;	/* Divisor */
+    uint8_t prefix;		/* Hz prefix character */
+} range[] = {
+    /*  01234567         min         max   . lsd   div  prefix */
+    {/*  999.9Hz */       0UL,     9999UL, 4, 5,     1, ' '},
+    {/* 9.999kHz */    9900UL,    99999UL, 1, 4,    10, 'k'},
+    {/* 99.99kHz */   99000UL,   999999UL, 2, 4,   100, 'k'},
+    {/* 999.9kHz */  990000UL,  9999999UL, 3, 4,  1000, 'k'},
+    {/* 9.999MHz */ 9900000UL, 99999999UL, 1, 4, 10000, 'M'},
+};
+static unsigned int curr_range = 0;
+
 /* Frequency in dHz (10dHz = 1Hz). */
 static void display_freq(unsigned long freq)
 {
-    char buf[13];
-    char disp_buf[9];
-    char* pos = disp_buf;
-    int i;
-    int d;
+    char line[9];
+    signed char pos;
+    signed char point;
     static unsigned long prev_freq = 0xffffffffUL;
-    int digits = 0;
-    char prefix;
 
     if (freq == prev_freq) {
 	return;
@@ -564,46 +580,58 @@ static void display_freq(unsigned long freq)
 	return;
     }
 
-    i = sizeof(buf);
-    buf[--i] = '\0';
-    do {
-	d = freq % 10;
+    /*
+     * See if we'll need to change range.
+     */
+
+    while (freq > range[curr_range].max) {
+	curr_range++;
+    }
+    while (freq < range[curr_range].min) {
+	curr_range--;
+    }
+
+    /*
+     * Now format the frequency within the range.
+     *
+     * First set up the end of the line (prefix + "Hz").
+     */
+
+    line[5] = range[curr_range].prefix;
+    line[6] = 'H';
+    line[7] = 'z';
+    line[8] = '\0';
+
+    pos = range[curr_range].lsd;
+    point = range[curr_range].point;
+    freq /= range[curr_range].divisor;
+
+    /* Format digits to the right of the decimal point */
+    while (pos > point) {
+	line[pos--] = freq % 10 + '0';
 	freq /= 10;
-	buf[--i] = d + '0';
-	digits++;
-    } while (freq != 0);
-
-    if (digits <= 4) {
-	prefix = ' ';
-    } else if (digits <= 7) {
-	prefix = 'k';
-    } else {
-	prefix = 'M';
     }
 
-    /* We will show 4 significant digits */
-    int n = digits < 4 ? digits : 4;
-    pos = disp_buf;
-    digits--;
-    if (digits == 0) {
-	*pos++ = '0';
-	*pos++ = '.';
-    }
-    while (n--) {
-	*pos++ = buf[i++];
-	if (--digits % 3 == 0 && n != 0) {
-	    *pos++ = '.';
-	}
+    /*
+     * Fill in the decimal point and one digit to the left
+     * of the decimal point.
+     */
+    line[pos--] = '.';
+    line[pos--] = freq % 10 + '0';
+    freq /= 10;
+
+    /* Fill in non-zero digits to the left of the decimal point. */
+    while (freq) {
+	line[pos--] = freq % 10 + '0';
+	freq /= 10;
     }
 
-    if (prefix != ' ') {
-	*pos++ = prefix;
+    /* Out of significant digits. Fill in spaces. */
+    while (pos >= 0) {
+	line[pos--] = ' ';
     }
-    *pos++ = 'H';
-    *pos++ = 'z';
-    *pos = '\0';
 
-    show_line(disp_buf);
+    show_line(line);
 }
 
 /* ================================================================
